@@ -1,0 +1,359 @@
+/**
+ * RandomHash source code implementation
+ *
+ * Copyright 2026 Amir Reza Zamani <amirrezazamani@gmail.com> - https://parniancoin.com
+ * Author: Amir Reza Zamani <amirrezazamani@gmail.com>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 3 as published
+ * by the Free Software Foundation. It is distributed WITHOUT ANY WARRANTY.
+ * See the LICENSE file or <https://www.gnu.org/licenses/gpl-3.0.html>.
+ */
+///
+/// @file
+/// @copyright Amir Reza Zamani <amirrezazamani@gmail.com>
+/// @author Amir Reza Zamani <amirrezazamani@gmail.com>
+
+#include "precomp.h"
+#include "GenericCLMiner.h"
+#include "MinersLib/Global.h"
+#include "corelib/ParnianWork.h"
+
+U64 c_zero = 0;
+
+GenericCLMiner::GenericCLMiner(FarmFace& _farm, unsigned globalWorkMult, unsigned localWorkSize, U32 gpuIndex) :
+    CLMinerBase(_farm, globalWorkMult, localWorkSize, gpuIndex)
+{
+    string tn = FormatString("GPU%d", m_globalIndex);
+}
+
+GenericCLMiner::~GenericCLMiner()
+{
+    
+}
+
+
+bool GenericCLMiner::WorkLoopStep()
+{
+    //wait for work
+    m_workReadyEvent.WaitUntilDone();
+    PARNIANMINER_RETURN_ON_EXIT_FLAG_EX(true); 
+
+    ParnianWorkSptr workTemplate = GetWork();
+    
+    //when kill() is called, we set the event but not the work, just exit then.
+    if (!workTemplate.get())
+        return false;
+
+    //handle DevFee
+    m_farm.ReconnectToServer(0xFFFFFFFF); 
+
+    if (!m_gpuInfoCache->enabled)
+    {
+        CpuSleep(100);
+        AddHashCount(0);
+        return true;
+    }
+
+    if (ShouldInitialize(workTemplate))
+    {
+        AutoFlagSet< std::atomic<bool> > Flag(m_isInitializing);
+
+        m_isInitializationDone = false;
+        //init a new WorkOffset
+        m_workOffset = KernelOffsetManager::GetCurrentValue();
+        bool res  = init(workTemplate);
+        m_isInitializationDone = true;
+        if (!m_isInitialized || !res)
+        {
+            PrintOut("Init thread failed\n");
+            m_gpuInfoCache->enabled = false;
+            QueueStopWorker();
+            return false; 
+        }
+    }
+
+    if (m_lastWorkTemplate.get() == nullptr || !m_lastWorkTemplate->IsSame(workTemplate.get()))
+    {
+        //new work template, we shoud PrepareWork it
+        m_lastWorkTemplate = workTemplate;
+    }
+    else 
+    {
+        //nothing new, continue mining the current wp
+        workTemplate = m_currentWp;
+    }
+
+    PrepareWorkStatus prepStatus = PrepareWork_Nothing;
+    prepStatus = PrepareWork(workTemplate);
+
+    //eval before running kernel so we can do some calculations while the kernel is running
+    EvalKernelResult();
+
+    if (prepStatus != PrepareWork_WaitForNewWork &&
+        prepStatus != PrepareWork_Timeout)
+    {
+        PARNIANMINER_RETURN_ON_EXIT_FLAG_EX(true);
+        QueueKernel();
+
+        AddHashCount(m_globalWorkSize);
+    }
+
+    //passvely wait for new job
+    if (prepStatus == PrepareWork_WaitForNewWork  ||
+        prepStatus == PrepareWork_Timeout)
+    {
+        CpuSleep(100);
+    }
+
+    // Check if we should stop.
+    if (shouldStop())
+    {
+        // Make sure the last buffer write has finished --
+        // it reads local variable.
+        if (GetPlatformType() == PlatformType_OpenCL)
+            PARNIANMINER_CL_EXEC(m_queue.finish())
+        else
+            CpuSleep(250);
+        return false; 
+    }
+    
+    return true; 
+}
+
+
+bool GenericCLMiner::init(const ParnianWorkSptr& work)
+{
+    AddPreBuildFunctor([&](string& code) 
+    {
+        //use AddPreBuildFunctor as pre-init !
+        m_zeroBuffer.resize(GetOutputBufferSize());
+        ZeroVector(m_zeroBuffer);
+
+        m_results.resize(GetOutputMaxCount() + 1);
+        ZeroVector(m_results);
+
+        addDefinition(code, "GROUP_SIZE", (U32)m_localWorkSize);
+        addDefinition(code, "MAX_OUTPUTS", GetOutputMaxCount());
+    });
+
+    // get all platforms
+    try
+    {
+        //will call BuildKernels and fill m_kernels
+        if (!CLMinerBase::init(work))
+        {
+            PrintOut(" Init failed\n");
+            return false;
+        }
+
+#ifndef RH_COMPILE_CPU_ONLY
+        // create buffers           
+        U32 outSize = GetOutputBufferSize();
+        U32 headSize = GetHeaderBufferSize();
+        m_kernelOutput = cl::Buffer(m_context, CL_MEM_WRITE_ONLY, outSize);
+        m_kernelHeader = cl::Buffer(m_context, CL_MEM_READ_ONLY, headSize);
+#endif
+        //start hashrate counting
+        if (m_hashCountTime == 0)
+            m_hashCountTime = TimeGetMilliSec();
+    }
+    catch (cl::Error const& err)
+    {
+        PARNIANMINER_PRINT_EXCEPTION_EX("CL Exception ",  err.what());
+        return false;
+    }
+    return true;
+}
+
+
+void GenericCLMiner::KernelCallBack()
+{
+    
+}
+
+void GenericCLMiner::QueueKernel()
+{
+    m_kernelItterations++;
+
+    {
+        for(auto& kernels : m_kernels )
+        {
+            for(U32 i = 0; i < kernels.size(); i++)
+            {
+                auto& kernel = kernels[i];
+                PARNIANMINER_CL_EXEC( m_queue.enqueueNDRangeKernel(kernel.second, m_workOffset, m_globalWorkSize, m_localWorkSize, NULL, NULL/*&CBevent*/) );
+            }
+        } 
+
+        m_workOffset = KernelOffsetManager::Increment(m_globalWorkSize) - m_globalWorkSize;
+    }
+}
+
+
+bool GenericCLMiner::IsWorkStalled()
+{
+    if (m_LastNewWorkStartTime == 0)
+        return false;
+
+    //Verify global timeout
+    S64 dt = (TimeGetMicroSec() - m_LastNewWorkStartTime )/1000/1000;
+    if (dt > 0)
+    {
+        if (dt > MaxWorkPackageTimeout)
+        {        
+            PrintOut("No work for %u seconds. Reconnecing...\n", MaxWorkPackageTimeout);
+            return true;
+        }
+    }
+    else
+    {
+        //handle time change !
+        m_LastNewWorkStartTime = TimeGetMicroSec();
+    }
+
+    return false;
+}
+
+PrepareWorkStatus GenericCLMiner::PrepareWork(const ParnianWorkSptr& newWorkTempl, bool reuseCurrentWP)
+{
+    U32 isWorkpackageDirty = AtomicSet(m_workpackageDirty, 0);
+
+    PrepareWorkStatus workStatus = PrepareWork_Nothing;
+    if (m_currentWp.get() == nullptr || !m_currentWp->IsSame(newWorkTempl.get()) || reuseCurrentWP || isWorkpackageDirty)
+    {
+        //clone the global work package
+        if (!reuseCurrentWP)
+        {
+            m_currentWp = ParnianWorkSptr(newWorkTempl->Clone());
+            m_currentWp->m_localyGenerated = true;
+        }
+
+        m_farm.RequestNewWork(m_currentWp, this);
+
+        m_startNonce = m_currentWp->m_startNonce;
+        if (m_startNonce)
+            KernelOffsetManager::Reset(m_startNonce);
+        
+        if (GetPlatformType() != PlatformType_CPU)
+        {
+            m_workOffset = KernelOffsetManager::Increment(m_globalWorkSize) - m_globalWorkSize;
+        }
+
+        m_sleepWhenWorkFinished = false;
+        m_lastWorkStartTimeMs = TimeGetMilliSec();
+
+        //indicate first kernel push
+        m_kernelItterations = 0;
+
+        ClearKernelOutputBuffer();
+
+        if (m_LastNewWorkStartTime == 0)
+        {
+            m_LastNewWorkStartTime = TimeGetMicroSec();
+        }
+        else
+        {
+            auto delta = TimeGetMicroSec() - m_LastNewWorkStartTime;
+            m_accumNewWorkDeltaTime += delta;
+            m_accumNewWorkDeltaTimeCount++;
+
+            m_LastNewWorkStartTime = TimeGetMicroSec();
+        }
+        
+        workStatus = PrepareWork_NewWork;
+    }
+    else
+    {       
+        // Detect stale work
+        if (IsWorkStalled())
+        {
+            auto avgWorkTimeDelta = m_accumNewWorkDeltaTime / m_accumNewWorkDeltaTimeCount / 1000 / 1000; //sec
+            PrintOut("%s timeout after %u seconds. Work is stale.\n", GpuManager::Gpus[m_globalIndex].gpuName.c_str(), m_maxExtraTimePerWorkPackage + avgWorkTimeDelta);
+            
+            //reset this warning
+            m_LastNewWorkStartTime = TimeGetMicroSec();
+            m_workReadyEvent.Reset();
+            workStatus = PrepareWork_Timeout;
+
+            //request reconnect
+            m_farm.ReconnectToServer(m_globalIndex);
+        }
+    }
+
+    return workStatus;
+}
+
+void GenericCLMiner::EvalKernelResult()
+{
+    //skip the first run for the kernel is not even started yet
+    if (m_kernelItterations)
+    {
+        PARNIANMINER_ASSERT(m_results.size() == GetOutputMaxCount()+1);
+        m_results[0] = 0;
+        
+        PARNIANMINER_CL_EXEC( m_queue.enqueueReadBuffer(m_kernelOutput, CL_TRUE, 0,(sizeof(U32)*m_results.size()), &m_results[0]) );
+       
+        //flush pending write buffers cuz they are executed with this cl call
+        FreeQueuedBuffers();
+
+        U32 count = (U32)m_results[0];
+        if (count)
+        {
+            if (count > GetOutputMaxCount()+1 || count > m_results.size())
+            {
+                PrintOut("Error. To many nonces found...\n");
+                count = RH_Min(GetOutputMaxCount()+1, (U32)m_results.size()-1); 
+            }
+            ClearKernelOutputBuffer();
+           
+            std::vector<U64> nonces;
+            nonces.reserve(count);
+            for (U32 i = 0; i < count; i++) 
+                nonces.push_back((U64)m_results[i + 1]);
+
+            SolutionSptr solPtr = MakeSubmitSolution(nonces, m_currentWp->m_nonce2, false);
+
+            m_farm.submitProof(solPtr);
+        }
+    }
+}
+
+// Reset search buffer if any solution found.
+void GenericCLMiner::ClearKernelOutputBuffer()
+{
+    PARNIANMINER_CL_EXEC(m_queue.enqueueWriteBuffer(m_kernelOutput, CL_FALSE, 0, m_zeroBuffer.size(), &m_zeroBuffer[0]));
+}
+
+void GenericCLMiner::SetSearchKernelCurrentTarget(U32 paramIndex, cl::Kernel& searchKernel)
+{
+    cl_long upperTarget = m_currentWp->GetDeviceTargetUpperBits();
+
+    PARNIANMINER_CL_EXEC(searchKernel.setArg(paramIndex, upperTarget));
+}
+
+KernelCodeAndFuctions GenericCLMiner::GetKernelsCodeAndFunctions()
+{
+    bytes code;
+    return { { code, { ""}} };
+};
+
+
+SolutionSptr GenericCLMiner::MakeSubmitSolution(const std::vector<U64>& nonces, U64 nonce2, bool isFromCpuMiner)
+{
+    ParnianSolution* sol = new ParnianSolution();
+    sol->m_results = nonces;
+    sol->m_gpuIndex = m_globalIndex;
+    sol->m_work = ParnianWorkSptr(m_currentWp->Clone());
+    sol->m_isFromCpuMiner = isFromCpuMiner;
+
+#ifdef RH_RANDOMIZE_NONCE2
+    if (!sol->m_work->m_isSolo)
+    {
+        sol->m_work->m_nonce2 = (U32)nonce2;
+        sol->m_work->m_nonce2_64 = ParnianWorkPackage::ComputeNonce2((U32)nonce2);
+    }
+#endif
+
+    return SolutionSptr(sol);
+}
