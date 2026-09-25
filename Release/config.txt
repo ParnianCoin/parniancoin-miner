@@ -1,0 +1,138 @@
+{
+/*
+**************************************************************************************************************************************
+*	parnianminer - Copyright 2026 Amir Reza Zamani <amirrezazamani@gmail.com>
+*	parnianminer configuration file (JSON). Loaded automatically when parnianminer runs with no option.
+*	Keys are command-line options (without the dash)
+*	Value types are string, bool and integer
+*	To see all available keys run "parnianminer -help"
+**************************************************************************************************************************************
+*/
+
+// Enable the use of CPU to mine.
+// ex "cpu":true, "cputhreads":4 will enable mining on cpu while gpu mining.
+"cpu":true,
+
+// Number of CPU miner threads when mining with CPU. ex: "cpu":true, "cputhreads":4
+// NOTE: adding + before thread count will disable the maximum thread count safety of one thread per core/hyperthread. Use this at your own risk. EX: "cputhreads":"+5"
+"cputhreads":0,
+
+// Slow down mining by resting the cpu part of the time (keeps the computer responsive/cooler).
+// Min-Max are 0 and 99. Ex. "cputhrottling":12 rests the cpu 12% of the time
+"cputhrottling":0,
+
+// Enable individual GPU by their index. GPU not in the list will be disabled. Put an empty string to disable mining on all gpu
+// ex: "gpu":"0,3,4" to mine on gpu #0, #3 and #4
+// NOTE: This option is ignored for CPU only binaries.
+//       To disable gpu mining, on gpu binaries, simply put empty string value of "gpu" and "gputhreads". Ex: "gpu":"" and "gputhreads":""
+"gpu":"0",
+
+// Cuda thread count. 
+// ex: "gputhreads":"100" launches 100 threads on selected gpu(s)
+// ex: "gputhreads":"100,200,123" launches 100 threads on selected gpu 0, 200 threads on gpu1, 123 treads on gpu2
+// NOTE: this option is ignored for CPU only binaries.
+"gputhreads":"100",
+
+// Pool or node address.
+// Pool, automatic port (recommended): "stratum.parniancoin.com:auto"
+//   The miner measures its hashrate and moves to the matching pool port:
+//   38008=10 kH/s, 38018=50 kH/s, 38028=200 kH/s, 38038=500 kH/s, 38048=1.5 MH/s, 38058=3 MH/s+
+// Pool, fixed port: "stratum.parniancoin.com:38008" (the miner stays on this port)
+// Solo mining on a node: "http://node.parniancoin.com:38009"
+"s":"stratum.parniancoin.com:auto",
+
+// Pool user: your ParnianCoin account, a dot, and a worker name for this computer
+// Ex: "su":"YOUR_PARNIAN_ACCOUNT.rig1"
+"su":"YOUR_PARNIAN_ACCOUNT.rig1",
+
+// Pool password (not checked by the pool, any value)
+"pw":"x",
+
+// Connection retries before switching to failover (or exiting)
+"r":20,
+
+// Failover pool/node address, same format as "s" ('auto' allowed for pools)
+"fo":"",
+
+// Failover pool user (default: same as "su")
+"fou":"",
+
+
+// Failover pool password
+"fop":"",
+
+// Stop the miner after this many consecutive submit errors (default 10).
+// Useful for solo mining on a node.
+"maxsubmiterrors":5,
+
+// Solo mining only: extra payload added to the blocks you find.
+"extrapayload":"Default",
+  
+// Tcp port of the remote monitoring api (ex: 7111). 0 = disabled (default).
+// The api listens on 127.0.0.1 only unless "apiremote" is true.
+// Read-only unless "apipw" is set. See API.txt
+"apiport":0,
+
+// Open the api to the network (all interfaces). Only on a trusted network, with a strong "apipw".
+"apiremote":false,
+
+// Api password for control commands (miner_restart, miner_reboot, miner_file, control_gpu).
+// Empty = read-only api. Use a long random password.
+"apipw":"",
+
+// No new work timeout in seconds. Default is 60
+"worktimeout": 60,
+
+// Display mining speeds every x seconds.
+// Default is 10
+"displayspeedtimeout":10,
+
+          
+// Set the name of the log's filename.
+// Note: the log file is overwritten every time parnianminer starts
+"logfilename":"parnianminer.log",
+
+// On windows only. Set miner's process priority.
+// 0=Background Process, 1=Low Priority, 2=Normal Priority, 3=High Priority.
+// Default is 3.
+// WARNING: Changing this value will affect GPU mining.
+"processpriority":3,
+
+
+// Log verbosity. From 0 to 3.
+// 0 no log, 1 normal log, 2 include warnings. 3 network (only in log file).
+// Default is 1
+"v":1,
+
+// Set local difficulty. ex: "diff":999
+"diff":0,
+
+// On windows only. Force miner to only run on selected logical core processors.
+// ex: "processorsaffinity":"0,3" will make the miner run only on logical core #0 and #3.
+// WARNING: Changing this value will affect GPU mining.
+"processorsaffinity":"",
+
+
+// This option will enable some memory optimizations that could make the miner slower on some cpu.
+// Test it with -testperformance before using it.
+// 1 to enable boost. 0 to disable boost.
+// Enabled, by default, on cpu with hyperthreading.
+"memoryboost":"",
+
+// This option will enable some sse4 optimizations.
+// It could make the miner slower on some cpu.
+// Test it with -testperformance before using it.
+// 1 to enable SSe4.1 optimizations. 0 to disable. Disabled by default. 
+"sseboost":"",
+
+// Enable active waiting on kernel run.
+// This will raise cpu usage but bring more stability, specially when mining on multiple gpu.
+// WARNING: This affect cpu mining
+"kernelactivewaiting":false,
+
+// Disable auto-reconnect on connection lost.
+// Note: the miner will exit when the connection is lost.
+"dar":false
+
+}
+
