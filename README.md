@@ -62,7 +62,25 @@ With `:auto` the miner:
 | 38068 | 4.75 MH/s    | 4.25 MH/s  |
 
 The active port is written in the log, e.g. `Auto port: active port is 38018 - Variable difficulty (50 kH/s)` and at the end of every speed line (`Port 38018 (auto)`).
-`auto` is also accepted for the failover pool (`-fo`). It is not available for solo mining.
+`auto` is also accepted for the backup pools (`-fo`). It is not available for solo mining.
+
+## Backup pools
+
+Give one or more backup pools with `-fo` (comma separated) and, if needed, another account for each one with `-fou`:
+
+```
+parnianminer -cpu -s stratum.parniancoin.com:auto -su YOUR_PARNIAN_ACCOUNT.rig1 -pw x -fo stratum2.example.com:auto -fou OTHER_ACCOUNT.rig1
+```
+
+In `config.txt` the same is written as lists: `"fo":["stratum2.example.com:auto"]`, `"fou":["OTHER_ACCOUNT.rig1"]`.
+
+* Each pool must have a different domain; the miner stops with an error when a domain is repeated.
+* Pools and solo nodes (`http://`) cannot be mixed in the same list.
+* The miner goes to the next pool when the current one is not reachable after `-r` retries,
+  refuses the login, or sends no new work for `-worktimeout` seconds. After the last pool it starts again with the first one
+  (30 seconds pause when no pool is reachable). It only stops when every pool refused the login.
+* While on a backup pool it checks every `-failback` minutes (default 30, `0` = never) if the main pool is reachable again and goes back to it.
+* The auto port selection runs separately for each pool, and the log shows which pool is active.
 
 ## Config file
 

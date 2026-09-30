@@ -6,6 +6,14 @@ Version 2.4.1 - Auto port improvements
 *Auto port: new port 38068 (fixed difficulty, 5 MH/s or greater)
 *Auto port: a switch is confirmed when two checks in a row point in the same direction,
  so small hashrate fluctuations no longer cancel a pending switch
+*New: several backup pools. -fo accepts a comma separated list (a list in config.txt), -fou / -fop give
+ the user and password of each backup pool (default: same as the main pool). Repeated domains are refused.
+*New: -failback N: while on a backup pool, go back to the main pool when it is reachable again (default 30 minutes)
+*The miner no longer exits when the backup pool fails: it goes on with the next pool of the list
+*A pool that refuses the login or sends no new work (-worktimeout) is now left for the next pool
+ (Linux: the miner used to exit on work timeout)
+*Fixed crash when the connection was lost or the login refused before the first job was received
+*Auto port state, pending port switch and stratum session are now kept per pool
 
 Version 2.4 - ParnianCoin release (out of beta)
 *New: automatic pool port selection. Use "auto" instead of the port: -s stratum.parniancoin.com:auto

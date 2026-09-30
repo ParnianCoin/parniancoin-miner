@@ -22,6 +22,8 @@
 #include "corelib/CommonData.h"
 #include "corelib/boostext.h"
 #include "corelib/miniweb.h"
+#include <thread>
+#include <chrono>
 
 #ifndef _WIN32_WINNT
 #include <sys/socket.h>
@@ -62,13 +64,25 @@ StratumClient::StratumClient(const StratumInit& initData )
     m_nonce2Rand.seed((U32)TimeGetMilliSec()^rand32());
 
 	//m_minerType = initData.m;
-	m_primary.host = initData.host;
-	m_primary.port = initData.port;
-	m_primary.user = initData.user;
-	m_primary.pass = initData.pass;
-    m_primary.autoPort = GlobalMiningPreset::I().Get()->m_autoPort && !initData.soloOverStratum;
+    // Main pool followed by the backup pools (validated: unique domains, no pool/solo mix).
+    // The vector is never resized afterwards, so m_active can point into it.
+    m_pools = GlobalMiningPreset::I().BuildPoolList();
+	m_pools[0].host = initData.host;
+	m_pools[0].port = initData.port;
+	m_pools[0].user = initData.user;
+	m_pools[0].pass = initData.pass;
+    m_pools[0].autoPort = GlobalMiningPreset::I().Get()->m_autoPort && !initData.soloOverStratum;
+    for (auto& pool : m_pools)
+        pool.autoPort = pool.autoPort && !initData.soloOverStratum;
+    m_failbackProbe = std::make_shared<std::atomic<int>>(0);
 
-	m_active = &m_primary;
+	m_active = &m_pools[0];
+    if (m_pools.size() > 1)
+    {
+        PrintOut("Main pool   : %s\n", m_pools[0].HostDescr());
+        for (size_t i = 1; i < m_pools.size(); i++)
+            PrintOut("Backup pool %u: %s (user %s)\n", (unsigned)i, m_pools[i].HostDescr(), m_pools[i].user.c_str());
+    }
 
 	m_authorized = false;
 	m_connected = false;
@@ -80,7 +94,7 @@ StratumClient::StratumClient(const StratumInit& initData )
 
     if (!m_soloMining)
     {
-        if (m_primary.user.length() == 0 && m_primary.pass.length() == 0 && g_testPerformance == false)
+        if (m_pools[0].user.length() == 0 && m_pools[0].pass.length() == 0 && g_testPerformance == false)
         {
             PARNIANMINER_EXIT_APP("Error: No credential provided.\n");
         }
@@ -97,23 +111,138 @@ bool StratumClient::IsSoloMining()
     return m_soloMining && !GlobalMiningPreset::I().IsInDevFeeMode();
 }
 
-void StratumClient::SetFailover(string const & host, string const & port, string const & user, string const & pass)
+void StratumClient::SetActivePool(int idx)
 {
-    if (!user.length())
+    // caller holds m_portMutex
+    if (idx != m_activeIdx)
+        m_sessionID.clear();   // a stratum session id is only valid on the pool that gave it
+    m_activeIdx = idx;
+    m_active = &m_pools[idx];
+    m_retries = 0;
+    m_backupSinceMS = 0;
+}
+
+// The current pool failed (max retries, login refused, no work): go to the next pool of the list
+void StratumClient::SwitchToNextPool(const char* reason)
+{
+    int from = m_activeIdx;
+    int to = (from + 1) % (int)m_pools.size();
     {
-	    m_failover.host = host;
-	    m_failover.port = port;
-	    m_failover.user = m_active->user;
-	    m_failover.pass = m_active->pass;        
+        Guard g(m_portMutex);
+        SetActivePool(to);
+        m_pendingPort.clear();
+        m_pendingPool = -1;
     }
-    else
+
+    PrintOutCritical("Pool %s: %s. Switching to %s pool %s\n", m_pools[from].HostDescr(), reason,
+                     to == 0 ? "main" : "backup", m_pools[to].HostDescr());
+
+    // Every pool failed once in a row: pause before the next round
+    if (++m_poolsFailedInRow >= (int)m_pools.size())
     {
-	    m_failover.host = host;
-	    m_failover.port = port;
-	    m_failover.user = user;
-	    m_failover.pass = pass;
+        m_poolsFailedInRow = 0;
+        PrintOutCritical("No pool is reachable. Trying again in 30 seconds...\n");
+        CpuSleep(30 * 1000);
     }
-    m_failover.autoPort = GlobalMiningPreset::I().Get()->m_fAutoPort && !m_soloMining;
+}
+
+string StratumClient::GetActiveHostDescr()
+{
+    Guard g(m_portMutex);
+    return m_active ? string(m_active->HostDescr()) : string();
+}
+
+void StratumClient::ReportWorkTimeout()
+{
+    if (m_forceNextPool || m_portSwitchPending || m_poolSwitchPending)
+        return; // already reconnecting
+
+    if (m_pools.size() > 1)
+        m_forceNextPool = true;
+
+    // Break the blocking read; the network thread reconnects (to the next pool if any)
+    boost::system::error_code ec;
+    m_socket.shutdown(tcp::socket::shutdown_both, ec);
+}
+
+void StratumClient::CheckFailback()
+{
+    unsigned minutes = GlobalMiningPreset::I().Get()->m_failbackMinutes;
+    if (m_pools.size() < 2 || minutes == 0 || m_activeIdx == 0 || !isConnected() || m_poolSwitchPending)
+    {
+        m_backupSinceMS = 0;
+        return;
+    }
+
+    U64 now = TimeGetMilliSec();
+    if (!m_backupSinceMS)
+    {
+        m_backupSinceMS = now;
+        m_lastFailbackCheckMS = now;
+        return;
+    }
+
+    int state = m_failbackProbe->load();
+    if (state == 1)
+        return; // probe running
+    if (state == 2)
+    {
+        m_failbackProbe->store(0);
+        PrintOut("Main pool %s is reachable again. Switching back to it.\n", m_pools[0].HostDescr());
+        {
+            Guard g(m_portMutex);
+            m_pendingPool = 0;
+        }
+        m_poolSwitchPending = true;
+        boost::system::error_code ec;
+        m_socket.shutdown(tcp::socket::shutdown_both, ec);
+        return;
+    }
+    if (state == 3)
+    {
+        m_failbackProbe->store(0);
+        PrintOut("Main pool %s is still unreachable, staying on %s\n", m_pools[0].HostDescr(), GetActiveHostDescr().c_str());
+    }
+
+    if (now - m_lastFailbackCheckMS < (U64)minutes * 60 * 1000)
+        return;
+    m_lastFailbackCheckMS = now;
+
+    // Test a plain TCP connection to the main pool in the background, without touching the current connection
+    string host, port;
+    {
+        Guard g(m_portMutex);
+        host = m_pools[0].host;
+        port = m_pools[0].port;
+    }
+    auto probe = m_failbackProbe;
+    probe->store(1);
+    std::thread([probe, host, port]()
+    {
+        bool ok = false;
+        try
+        {
+            boost::asio::io_context ioc;
+            tcp::resolver resolver(ioc);
+            tcp::socket sock(ioc);
+            resolver.async_resolve(host, port, [&](const boost::system::error_code& ec, tcp::resolver::results_type results)
+            {
+                if (!ec)
+                    boost::asio::async_connect(sock, results, [&](const boost::system::error_code& ec2, const tcp::endpoint&)
+                    {
+                        ok = !ec2;
+                    });
+            });
+            ioc.run_for(std::chrono::seconds(15));
+            boost::system::error_code ec;
+            sock.close(ec);
+        }
+        catch (...)
+        {
+            ok = false;
+        }
+        probe->store(ok ? 2 : 3);
+    }).detach();
 }
 
 string StratumClient::GetActivePort()
@@ -129,6 +258,7 @@ void StratumClient::RequestPortSwitch(const string& port)
     {
         Guard g(m_portMutex);
         m_pendingPort = port;
+        m_pendingPortPool = m_activeIdx;   // never apply it to another pool
     }
     m_portSwitchPending = true;
 
@@ -185,7 +315,7 @@ void StratumClient::SetDevFeeCredentials(const string& param)
 {
     // parnianminer: dev fee removed - always stay on the user's own pool
     (void)param;
-    m_active = &m_primary;
+    m_active = &m_pools[m_activeIdx];
     m_devFeeConnectionMode = false;
 }
 
@@ -252,29 +382,21 @@ void StratumClient::Reconnect(U32 preSleepTimeMS)
 	
     if (m_state != WorkerState::Stopping && m_state != WorkerState::Stopped)
     {
-        // A voluntary auto-port switch is not a connection failure
-        if (m_portSwitchPending)
+        // A voluntary switch (auto port, back to the main pool) is not a connection failure
+        bool forceNext = m_forceNextPool.exchange(false);
+        if (m_portSwitchPending || m_poolSwitchPending)
             preSleepTimeMS = 0;
         else
             m_retries++;
-        if (m_retries >= m_maxRetries && !m_devFeeConnectionMode)
+        if ((m_retries >= m_maxRetries || forceNext) && !m_devFeeConnectionMode)
         {
-            if (m_failover.host.empty())
+            if (m_pools.size() < 2)
             {
-                PARNIANMINER_EXIT_APP("Max retry count reached, exiting...");
+                if (!forceNext)
+                    PARNIANMINER_EXIT_APP("Max retry count reached, exiting...");
             }
             else
-            {
-                if (m_active == &m_primary)
-                {
-                    m_retries = 0;
-                    m_active = &m_failover;
-                }
-                else 
-                {
-                    PARNIANMINER_EXIT_APP("Max retry count reached with failover address, exiting...");
-                }
-            }
+                SwitchToNextPool(forceNext ? "not usable" : "not reachable");
         }
 
         if (wasConnected)
@@ -313,7 +435,7 @@ void StratumClient::Reconnect(U32 preSleepTimeMS)
         }
 
         if (!GlobalMiningPreset::I().IsInDevFeeMode())
-            m_active = &m_primary;
+            m_active = &m_pools[m_activeIdx];
     }
 }
 
@@ -421,7 +543,7 @@ void StratumClient::WorkLoop()
         }
         catch (std::exception const& _e) 
         {
-            if (!m_devFeeConnectionMode && !m_portSwitchPending)
+            if (!m_devFeeConnectionMode && !m_portSwitchPending && !m_poolSwitchPending)
                 PARNIANMINER_PRINT_EXCEPTION_EX("Network Error",  _e.what());
             
             Reconnect(3000);
@@ -505,14 +627,22 @@ void StratumClient::Preconnect()
         CpuSleep(m_sleepBeforeConnectMS);
     }    
     
-    // Apply a pending auto port switch (only for credentials in auto mode)
+    // Apply a pending switch back to the main pool, then a pending auto port switch
+    // (only for the pool that requested it, and only in auto mode)
     {
         Guard g(m_portMutex);
-        if (m_pendingPort.length() && m_active->autoPort)
+        if (m_pendingPool >= 0)
+        {
+            SetActivePool(m_pendingPool);
+            m_pendingPool = -1;
+        }
+        if (m_pendingPort.length() && m_pendingPortPool == m_activeIdx && m_active->autoPort)
             m_active->port = m_pendingPort;
         m_pendingPort.clear();
+        m_pendingPortPool = -1;
     }
     m_portSwitchPending = false;
+    m_poolSwitchPending = false;
 
     if (!GlobalMiningPreset::I().IsInDevFeeMode())
     {
@@ -639,9 +769,7 @@ void StratumClient::MiningNotify(Json::Value& responseObject)
 
 ServerCredential* StratumClient::GetCurrentCred() 
 { 
-    if (m_active == &m_failover)
-        return &m_failover;
-    return &m_primary;
+    return m_active;
 }
 
 bool StratumClient::GetCurrentWorkInfo(h256& out_header)
@@ -939,6 +1067,20 @@ void StratumClient::RespondAuthorize(Json::Value& responseObject, U64 gpuIndex)
                 PrintOut("Not autorized to connect to stratum server %s. If you intended to mine on local wallet, put http:// \n",m_active->HostDescr());
         }
 
+        if (m_active != &m_devFee && m_pools.size() > 1)
+        {
+            // Login refused (ex: unknown account on this pool): try the next pool.
+            // Exit only when every pool refused the login.
+            m_refusedMask |= (1u << m_activeIdx);
+            if (m_refusedMask == (1u << m_pools.size()) - 1)
+            {
+                Disconnect();
+                PARNIANMINER_EXIT_APP("Connection refused by all pools. Check the users (su / fou).");
+            }
+            m_forceNextPool = true;
+            throw RH_Exception("Login refused");
+        }
+
         Disconnect();
         
         if (m_active != &m_devFee)
@@ -955,6 +1097,8 @@ void StratumClient::RespondAuthorize(Json::Value& responseObject, U64 gpuIndex)
     {
         if (!GlobalMiningPreset::I().IsInDevFeeMode())
         {
+            m_refusedMask = 0;
+            m_poolsFailedInRow = 0;
             if (m_active->user.length())
                 PrintOut("%s is autorized on stratum server %s\n", m_active->user.c_str(), m_active->HostDescr());
             else

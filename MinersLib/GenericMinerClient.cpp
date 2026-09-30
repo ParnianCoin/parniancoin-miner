@@ -183,11 +183,7 @@ void GenericMinerClient::HandleAutoPort(double hashrate, const string& activePor
 
 void GenericMinerClient::doStratum()
 { 
-    FarmPreset* farmInfo = GlobalMiningPreset::I().Get();
-	if (farmInfo->m_farmFailOverURL != "")
-	{
-        m_stratumClient->SetFailover(farmInfo->m_farmFailOverURL, farmInfo->m_fport, farmInfo->m_fuser, farmInfo->m_fpass);
-	}
+    // The pool list (main + backup pools) is built and validated by the StratumClient constructor
 	
 	m_farm.onSolutionFound([&](SolutionSptr sol)
 	{
@@ -280,8 +276,28 @@ void GenericMinerClient::doStratum()
                     }
                     str += "). ";
 
+                    // Several pools: show which one is active
+                    if (m_stratumClient->GetPoolCount() > 1)
+                    {
+                        int poolIdx = m_stratumClient->GetActivePoolIndex();
+                        str += FormatString("%s pool %s. ", poolIdx == 0 ? "Main" : "Backup", m_stratumClient->GetActiveHostDescr().c_str());
+                    }
+
+                    // Another pool became active: its auto port selection starts from scratch
+                    int activePool = m_stratumClient->GetActivePoolIndex();
+                    if (activePool != m_autoPortPoolIdx)
+                    {
+                        m_autoPortPoolIdx = activePool;
+                        m_autoPortStartMS = 0;
+                        m_autoPortLastEvalMS = 0;
+                        m_autoPortLastSwitchMS = 0;
+                        m_autoPortCandidate = -1;
+                        m_autoPortDecided = false;
+                        m_speedSMA.clear();
+                    }
+
                     // Pool auto port: show the active port and adjust it to the hashrate
-                    if (m_stratumClient->IsActiveAutoPort())
+                    if (m_stratumClient->IsActiveAutoPort() && m_speedSMA.size())
                     {
                         string activePort = m_stratumClient->GetActivePort();
                         str += FormatString("Port %s (auto)", activePort.c_str());
@@ -330,13 +346,15 @@ void GenericMinerClient::doStratum()
                 {
                     PrintOut("WorkTimeout reached. No new work received after %u seconds.\n",  g_workTimeout);
                     if (m_stratumClient.get())
-#ifdef _WIN32_WINNT
-                        m_stratumClient->CloseConnection();
+                        m_stratumClient->ReportWorkTimeout();   // reconnect, or next pool when there is one
                     else
-#endif
                         PARNIANMINER_EXIT_APP("Connection timeout.\n");
                 }
                 CpuSleep(1000);
+
+                // While on a backup pool, go back to the main pool when it is reachable again
+                if (m_stratumClient.get())
+                    m_stratumClient->CheckFailback();
 
                 if (GlobalMiningPreset::I().RestartRequested() == GlobalMiningPreset::eInteralRestart /*&& m_farm.isMining()*/)
                 {

@@ -77,8 +77,15 @@ public:
     StratumClient(const StratumInit& initData);
     ~StratumClient();
 
-	void SetFailover(string const & host, string const & port, string const & user, string const & pass);
-    ServerCredential GetFailover() { return m_failover;}
+    // Pool list: index 0 is the main pool (-s), the others are the backup pools (-fo)
+    size_t  GetPoolCount() { return m_pools.size(); }
+    int     GetActivePoolIndex() { return m_activeIdx.load(); }
+    string  GetActiveHostDescr();
+    // Called about once per second by the miner thread: while on a backup pool,
+    // checks from time to time if the main pool is reachable again and goes back to it.
+    void    CheckFailback();
+    // No new work from the pool for too long: reconnect, or go to the next pool when there is one
+    void    ReportWorkTimeout();
 
 	bool isRunning() { return m_running; }
 	bool isConnected() { return m_connected && m_authorized; }
@@ -159,12 +166,23 @@ protected:
 
 protected:
 	ServerCredential*   m_active;
-	ServerCredential    m_primary;
-	ServerCredential    m_failover;
+    std::vector<ServerCredential> m_pools;          // [0] main pool, [1..] backup pools. Never resized after construction.
+    std::atomic<int>    m_activeIdx = {0};
     ServerCredential    m_devFee;
     std::mutex          m_portMutex;
     string              m_pendingPort;
+    int                 m_pendingPortPool = -1;     // pool the pending auto port belongs to
+    int                 m_pendingPool = -1;         // voluntary switch to this pool (failback)
     std::atomic<bool>   m_portSwitchPending = {false};
+    std::atomic<bool>   m_poolSwitchPending = {false};
+    std::atomic<bool>   m_forceNextPool = {false};  // current pool is unusable: skip the remaining retries
+    int                 m_poolsFailedInRow = 0;     // pools given up in a row without a successful login
+    unsigned            m_refusedMask = 0;          // pools that refused the login since the last successful login
+    U64                 m_backupSinceMS = 0;
+    U64                 m_lastFailbackCheckMS = 0;
+    std::shared_ptr<std::atomic<int>> m_failbackProbe; // 0 idle, 1 running, 2 main pool reachable, 3 unreachable
+    void                SwitchToNextPool(const char* reason);
+    void                SetActivePool(int idx);
     bool    m_devFeeConnectionMode = false;
     string  m_userAgent = RH_PROJECT_NAME "/" RH_PROJECT_VERSION "/" RH_BUILD_TYPE;
 

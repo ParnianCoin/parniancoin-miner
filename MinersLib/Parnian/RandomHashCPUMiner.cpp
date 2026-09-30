@@ -330,7 +330,14 @@ void RandomHashCPUMiner::PauseCpuKernel()
         return;
     }
     
+    // No work received yet (ex: connection lost or login refused before the first job):
+    // the kernels are idle, there is nothing to send them.
     ParnianWorkSptr wp = m_currentWp;
+    if (wp.get() == nullptr)
+    {
+        m_isPaused = 1;
+        return;
+    }
     SendWorkPackageToKernels(wp.get(), true);
     m_isPaused = 1;
 }

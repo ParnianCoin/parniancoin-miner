@@ -362,7 +362,16 @@ int CmdLineManager::ParseInternalXML(const char* specificSymbol, bool exitOnErro
                     if (o->parsed && !o->allowMultiples)
                         continue;
 
-                    string symbVal = m_xmlCommandLineConfig.get(symb, "").asString();
+                    // A list (ex: "fo":["pool2:auto","pool3:auto"]) is given to the option as "a,b,c"
+                    Json::Value jv = m_xmlCommandLineConfig.get(symb, "");
+                    string symbVal;
+                    if (jv.isArray())
+                    {
+                        for (Json::ArrayIndex k = 0; k < jv.size(); k++)
+                            symbVal += (k ? "," : "") + jv[k].asString();
+                    }
+                    else
+                        symbVal = jv.asString();
 					//PrintOut("XML option %s '%s'\n", symb.c_str(), symbVal.c_str());
                     if (symbVal.length())
                     {

@@ -118,34 +118,152 @@ GlobalMiningPreset::GlobalMiningPreset()
 
 void GlobalMiningPreset::FailOverURL(const string& val)
 {
-    string url = val;
+    // One or more backup pools, comma separated. Parsed and validated in BuildPoolList()
+    m_presets.m_farmFailOverURL = val;
+}
+
+// Split a comma separated option value. Empty items are kept (",,") so that
+// the n-th user/password always belongs to the n-th backup pool.
+static std::vector<string> SplitPoolList(const string& val)
+{
+    std::vector<string> items;
+    string cur;
+    for (char c : val)
+    {
+        if (c == ',' || c == ';')
+        {
+            items.push_back(TrimString(cur));
+            cur.clear();
+        }
+        else
+            cur += c;
+    }
+    items.push_back(TrimString(cur));
+    return items;
+}
+
+// Domain used for the duplicate check: lower case, without scheme, port, user or trailing dot
+static string PoolDomainKey(const string& host)
+{
+    string h = ToLower(TrimString(host));
+    while (h.length() && h.back() == '.')
+        h.pop_back();
+    return h;
+}
+
+// Parse "stratum+tcp://host:port", "host:auto" or "http://host:port"
+static bool ParsePoolAddress(const string& val, ServerCredential& cred)
+{
+    string url = TrimString(val);
+    cred.solo = (ToLower(url).find("http://") == 0);
     ReplaceStringALL(url, "stratum+tcp://", "");
     ReplaceStringALL(url, "http://", "");
 
-    size_t p = url.find_last_of(":");
-    if (p != string::npos)
-    {
-        m_presets.m_farmFailOverURL = url.substr(0, p);
-        if (p + 1 <= url.length())
-            m_presets.m_fport = url.substr(p + 1);
-    }
-    else
-    {
-        m_presets.m_farmFailOverURL = url;
-    }
+    size_t slash = url.find("/");
+    if (slash != string::npos)
+        url = url.substr(0, slash);
 
-    // Failover pool can also use automatic port selection
-    m_presets.m_fAutoPort = false;
-    if (IsAutoPortKeyword(m_presets.m_fport))
+    size_t p = url.find_last_of(":");
+    if (p == string::npos || p == 0 || p + 1 >= url.length())
+        return false;
+
+    cred.host = url.substr(0, p);
+    cred.port = url.substr(p + 1);
+    cred.autoPort = false;
+    if (IsAutoPortKeyword(cred.port))
     {
-        if (val.find("http://") != string::npos)
+        if (cred.solo)
+            return false;
+        cred.autoPort = true;
+        cred.port = g_poolPortTiers[0].port;
+    }
+    return cred.host.length() > 0;
+}
+
+std::vector<ServerCredential> GlobalMiningPreset::BuildPoolList()
+{
+    static const size_t MaxPools = 8;
+    std::vector<ServerCredential> pools;
+
+    ServerCredential mainPool;
+    mainPool.host = m_presets.m_farmURL;
+    mainPool.port = m_presets.m_port;
+    mainPool.user = m_presets.m_user;
+    mainPool.pass = m_presets.m_pass;
+    mainPool.autoPort = m_presets.m_autoPort;
+    mainPool.solo = m_presets.m_soloOvertStratum;
+    pools.push_back(mainPool);
+
+    if (TrimString(m_presets.m_farmFailOverURL).empty())
+        return pools;
+
+    std::vector<string> addrs = SplitPoolList(m_presets.m_farmFailOverURL);
+    std::vector<string> users = SplitPoolList(m_presets.m_fuser);
+    std::vector<string> passes = SplitPoolList(m_presets.m_fpass);
+
+    for (size_t i = 0; i < addrs.size(); i++)
+    {
+        if (addrs[i].empty())
+            continue;
+
+        ServerCredential cred;
+        if (!ParsePoolAddress(addrs[i], cred))
         {
-            PrintOut("Error. 'auto' port is only available for pool mining, not for solo mining (http://).\n");
+            PrintOut("Error. Invalid backup pool address '%s'.\n"
+                     "       Use host:port or host:auto, ex: -fo stratum2.example.com:auto\n"
+                     "       ('auto' is only available for pools, not for solo mining on a node)\n", addrs[i].c_str());
             PARNIANMINER_EXIT_APP("");
         }
-        m_presets.m_fAutoPort = true;
-        m_presets.m_fport = g_poolPortTiers[0].port;
+
+        // Pool and solo addresses cannot be mixed: they use different protocols
+        if (cred.solo != mainPool.solo)
+        {
+            PrintOut("Error. Backup address '%s' is a %s but the main address is a %s.\n"
+                     "       All addresses must be pools (host:port) or all must be nodes (http://host:port).\n",
+                     addrs[i].c_str(), cred.solo ? "node (solo mining)" : "pool", mainPool.solo ? "node (solo mining)" : "pool");
+            PARNIANMINER_EXIT_APP("");
+        }
+
+        // Each pool must use a different domain
+        for (auto& other : pools)
+        {
+            if (PoolDomainKey(other.host) == PoolDomainKey(cred.host))
+            {
+                PrintOut("Error. The domain '%s' is used more than once in the pool list (-s / -fo).\n"
+                         "       Each pool must have a different domain.\n", cred.host.c_str());
+                PARNIANMINER_EXIT_APP("");
+            }
+        }
+
+        // n-th user/password of the lists; an empty or missing item means: same as the main pool
+        string user = (i < users.size()) ? users[i] : string();
+        string pass = (i < passes.size()) ? passes[i] : string();
+        cred.user = user.length() ? user : mainPool.user;
+        cred.pass = pass.length() ? pass : (user.length() ? string("x") : mainPool.pass);
+
+        if (!cred.solo && cred.user.empty() && cred.pass.empty())
+        {
+            PrintOut("Error. No user given for backup pool %s (option fou).\n", cred.host.c_str());
+            PARNIANMINER_EXIT_APP("");
+        }
+
+        pools.push_back(cred);
+        if (pools.size() > MaxPools)
+        {
+            PrintOut("Error. Too many pools: at most %u (the main pool and %u backup pools).\n", (unsigned)MaxPools, (unsigned)MaxPools - 1);
+            PARNIANMINER_EXIT_APP("");
+        }
     }
+
+    size_t usedItems = 0;
+    for (size_t i = 0; i < addrs.size(); i++)
+        if (addrs[i].length())
+            usedItems = i + 1;
+    if (users.size() > usedItems && TrimString(m_presets.m_fuser).length())
+        PrintOut("Warning. More users (fou) than backup pools (fo); the extra users are ignored.\n");
+    if (passes.size() > usedItems && TrimString(m_presets.m_fpass).length())
+        PrintOut("Warning. More passwords (fop) than backup pools (fo); the extra passwords are ignored.\n");
+    return pools;
 }
 
 void GlobalMiningPreset::SetStratumInfo(const string& val)
@@ -216,10 +334,18 @@ void GlobalMiningPreset::Initialize(char** argv, int argc)
 
     CmdLineManager::GlobalOptions().RegisterValue("su", "Network", "Pool user: YOUR_PARNIAN_ACCOUNT.WORKER_NAME\nex: -su YOUR_PARNIAN_ACCOUNT.rig1", [&](const string& val) {  m_presets.m_user = val; });
     CmdLineManager::GlobalOptions().RegisterValue("pw", "Network", "Pool password. Usually any value, ex: -pw x", [&](const string& val) { m_presets.m_pass = val; });
-    CmdLineManager::GlobalOptions().RegisterValue("fo", "Network", "Failover pool/node address. Same format as -s ('auto' port allowed for pools)", [&](const string& val) { FailOverURL(val); });
-    CmdLineManager::GlobalOptions().RegisterValue("fou", "Network", "Failover pool user. Default is the -su value", [&](const string& val) { m_presets.m_fuser = val; });
-    CmdLineManager::GlobalOptions().RegisterValue("fop", "Network", "Failover pool password", [&](const string& val) { m_presets.m_fpass = val; });
-    CmdLineManager::GlobalOptions().RegisterValue("r", "Network", "Connection retries before switching to failover (or exiting)", [&](const string& val) { m_presets.m_maxFarmRetries = ToInt(val); });
+    CmdLineManager::GlobalOptions().RegisterValue("fo", "Network", "Backup pools, used when the main pool (-s) cannot be reached.\n"
+        "One or more addresses separated by a comma, same format as -s ('auto' port allowed).\n"
+        "Each pool must have a different domain. The miner tries them in order and\n"
+        "comes back to the main pool when it is reachable again (see -failback).\n"
+        "ex: -fo stratum2.example.com:auto,stratum3.example.com:38008", [&](const string& val) { FailOverURL(val); });
+    CmdLineManager::GlobalOptions().RegisterValue("fou", "Network", "Users of the backup pools, in the same order as -fo, separated by a comma.\n"
+        "An empty or missing item means: same user as -su.\n"
+        "ex: -fou OTHER_ACCOUNT.rig1,THIRD_ACCOUNT.rig1", [&](const string& val) { m_presets.m_fuser = val; });
+    CmdLineManager::GlobalOptions().RegisterValue("fop", "Network", "Passwords of the backup pools, in the same order as -fo, separated by a comma", [&](const string& val) { m_presets.m_fpass = val; });
+    CmdLineManager::GlobalOptions().RegisterValue("failback", "Network", "While mining on a backup pool, check every N minutes if the main pool\n"
+        "is reachable again and go back to it. 0 = stay on the backup pool. Default 30", [&](const string& val) { m_presets.m_failbackMinutes = (unsigned)ToInt(val); });
+    CmdLineManager::GlobalOptions().RegisterValue("r", "Network", "Connection retries before switching to the next pool (or exiting when there is no backup pool)", [&](const string& val) { m_presets.m_maxFarmRetries = ToInt(val); });
     
     CmdLineManager::GlobalOptions().RegisterValueMultiple("diff", "General", "Set local difficulty. ex: -diff 999", [&](const string& val)
     { 

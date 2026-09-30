@@ -116,6 +116,7 @@ private:
     U64                         m_autoPortLastSwitchMS = 0;
     int                         m_autoPortCandidate = -1;
     bool                        m_autoPortDecided = false;
+    int                         m_autoPortPoolIdx = 0;   // pool the auto port state belongs to
 
     //watchdogs
     std::thread*                m_WatchdogDevFee = 0;

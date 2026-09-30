@@ -50,18 +50,26 @@
 // Pool password (not checked by the pool, any value)
 "pw":"x",
 
-// Connection retries before switching to failover (or exiting)
-"r":20,
+// Connection retries before switching to the next pool (or exiting when there is no backup pool).
+// Each retry takes about 5 seconds.
+"r":5,
 
-// Failover pool/node address, same format as "s" ('auto' allowed for pools)
-"fo":"",
+// Backup pools, used when the main pool ("s") cannot be reached, refuses the login or stops sending work.
+// One or more addresses in a list, same format as "s" ('auto' allowed). Each pool must have a different domain.
+// The miner tries them in order and comes back to the main pool when it is reachable again ("failback").
+// Ex: "fo":["stratum2.example.com:auto", "stratum3.example.com:38008"]
+"fo":[],
 
-// Failover pool user (default: same as "su")
-"fou":"",
+// Users of the backup pools, in the same order as "fo". An empty or missing item means: same user as "su".
+// Ex: "fou":["OTHER_ACCOUNT.rig1", ""]
+"fou":[],
 
+// Passwords of the backup pools, in the same order as "fo" (not checked by the pool)
+"fop":[],
 
-// Failover pool password
-"fop":"",
+// While mining on a backup pool, check every N minutes if the main pool is reachable again
+// and go back to it. 0 = stay on the backup pool. Default 30.
+"failback":30,
 
 // Stop the miner after this many consecutive submit errors (default 10).
 // Useful for solo mining on a node.

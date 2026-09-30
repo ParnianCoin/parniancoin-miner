@@ -47,15 +47,16 @@ struct FarmPreset
 	string m_user;
 	string m_pass;
 	string m_port;
-	string m_farmFailOverURL = "";
-	string m_fuser = "";
-	string m_fpass = "";
+	string m_farmFailOverURL = "";      //raw "fo" value: one or more backup pools, comma separated
+	string m_fuser = "";               //raw "fou" value: users of the backup pools, comma separated
+	string m_fpass = "";               //raw "fop" value: passwords of the backup pools, comma separated
 	string m_fport = "";
 	string m_email = "";
     unsigned m_maxFarmRetries = 3;          //retries retries2
     bool     m_soloOvertStratum = false; //when server starts with HTTP://
     bool     m_autoPort  = false;        //pool mode: port given as "auto"
     bool     m_fAutoPort = false;        //failover port given as "auto"
+    unsigned m_failbackMinutes = 30;     //while on a backup pool, retry the main pool every N minutes (0 = never)
 };
 
 ///////////////////////////////////////////////////
@@ -141,6 +142,11 @@ class GlobalMiningPreset
 
         void SetStratumInfo(const string& val);
         void FailOverURL(const string& val);
+    public:
+        // Main pool (-s) followed by the backup pools (-fo), validated (no duplicate domain,
+        // no mix of pool and solo addresses). Exits with an error message when invalid.
+        std::vector<ServerCredential> BuildPoolList();
+    protected:
         FarmPreset  m_presets;
 };
 

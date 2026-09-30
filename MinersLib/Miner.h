@@ -43,6 +43,7 @@ struct ServerCredential
 	string user;
 	string pass;
     bool   autoPort = false;   //pool auto port selection (ParnianCoin pool)
+    bool   solo = false;       //node address (http://), not a pool
     const char* HostDescr() { return FormatString("%s:%s", host.c_str(), port.c_str()); }
 };
 
