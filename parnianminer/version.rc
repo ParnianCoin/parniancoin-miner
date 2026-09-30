@@ -7,8 +7,8 @@
 
 #include <winver.h>
 
-#define PM_VER_BIN     2,4,0,0
-#define PM_VER_STR     "2.4.0.0"
+#define PM_VER_BIN     2,4,1,0
+#define PM_VER_STR     "2.4.1.0"
 
 1 ICON "ParnianCoinScreenSaver.ico"
 

@@ -1,14 +1,14 @@
-# parnianminer 2.4 binaries
+# parnianminer 2.4.1 binaries
 
 Prebuilt binaries of the ParnianCoin RandomHash2 CPU miner.
 Download: https://parniancoin.com
 
 | Package                               | Platform      |
 |---------------------------------------|---------------|
-| parnianminer-2.4-windows-x64.zip      | Windows 64 bit|
-| parnianminer-2.4-windows-x86.zip      | Windows 32 bit|
-| parnianminer-2.4-linux-x64.tar.gz     | Linux x64, any distribution (glibc 2.17+: Ubuntu 16.04+, Debian 9+, CentOS 7+) |
-| parnianminer-2.4-linux-x64-modern.tar.gz | Linux x64, about 7% faster, needs glibc 2.38+ (Ubuntu 24.04+, Debian 13+) |
+| parnianminer-2.4.1-windows-x64.zip      | Windows 64 bit|
+| parnianminer-2.4.1-windows-x86.zip      | Windows 32 bit|
+| parnianminer-2.4.1-linux-x64.tar.gz     | Linux x64, any distribution (glibc 2.17+: Ubuntu 16.04+, Debian 9+, CentOS 7+) |
+| parnianminer-2.4.1-linux-x64-modern.tar.gz | Linux x64, about 7% faster, needs glibc 2.38+ (Ubuntu 24.04+, Debian 13+) |
 
 No package needs to be installed: jsoncpp, boost and the C++ runtime are built into the executable.
 

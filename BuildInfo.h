@@ -13,6 +13,6 @@
 #pragma once
 
 #define RH_PROJECT_NAME "parnianminer"
-#define RH_PROJECT_VERSION "2.4"
+#define RH_PROJECT_VERSION "2.4.1"
 
 

@@ -23,6 +23,7 @@
 #include "MinersLib/Farm.h"
 #include "MinersLib/GenericCLMiner.h"
 #include "MinersLib/AutoPort.h"
+#include <algorithm>
 
 PARNIANMINER_COMMAND_LINE_DEFINE_GLOBAL_INT(g_DisplaySpeedTimeout, 10); //seconds
 
@@ -138,11 +139,8 @@ void GenericMinerClient::HandleAutoPort(double hashrate, const string& activePor
     int cur = FindPoolPortTier(activePort);
     if (cur < 0)
         cur = 0;
-    int target = SelectPoolPortTier(hashrate);
-
-    // hysteresis: only go down when clearly below the current tier
-    if (target < cur && hashrate >= (double)g_poolPortTiers[cur].hashrate * AUTOPORT_DOWN_MARGIN)
-        target = cur;
+    // First decision: the miner only sits on the start port to measure, so no hysteresis.
+    int target = SelectPoolPortTier(hashrate, m_autoPortDecided ? cur : -1);
 
     if (target == cur)
     {
@@ -154,16 +152,22 @@ void GenericMinerClient::HandleAutoPort(double hashrate, const string& activePor
         return;
     }
 
-    // after the first decision, a change must be confirmed by two evaluations in a row
+    // After the first decision, a change must be confirmed by two evaluations in a row
+    // that point in the same direction (up or down). The smaller of the two moves is applied.
     if (m_autoPortDecided)
     {
-        if (m_autoPortCandidate != target)
+        bool up = target > cur;
+        if (m_autoPortCandidate < 0 || m_autoPortCandidate == cur || (m_autoPortCandidate > cur) != up)
         {
             m_autoPortCandidate = target;
             return;
         }
         if (m_autoPortLastSwitchMS && now - m_autoPortLastSwitchMS < AUTOPORT_MIN_SWITCH_MS)
+        {
+            m_autoPortCandidate = target;
             return;
+        }
+        target = up ? std::min(target, m_autoPortCandidate) : std::max(target, m_autoPortCandidate);
     }
 
     PrintOut("Auto port: measured %s, switching from port %s to port %s (%s)\n",

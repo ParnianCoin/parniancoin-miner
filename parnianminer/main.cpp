@@ -57,7 +57,8 @@ void DisplayHelp(CmdLineManager& cmdline)
         printf("    %s  %s\n", g_poolPortTiers[i].port, g_poolPortTiers[i].descr);
     printf("\n"
         "  With 'auto' the miner starts on port %s, measures its hashrate and moves\n"
-        "  to the matching port. The active port is shown in the log.\n"
+        "  to the matching port (entered at 95%% of the port hashrate, left below 85%%).\n"
+        "  The active port is shown in the log.\n"
         "  With a numeric port the miner stays on that port only.\n"
         "\n"
         "  Website: https://parniancoin.com\n\n",

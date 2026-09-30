@@ -6,7 +6,7 @@ Runs on Windows (64/32 bit) and Linux x64.
 
 Website: https://parniancoin.com
 
-**Current version is 2.4**
+**Current version is 2.4.1**
 
 ## Quick start
 
@@ -38,15 +38,28 @@ parnianminer -cpu -cputhreads 4 -s http://node.parniancoin.com:38009
 | 38028 | 0.001396980         | 200 kH/s            |
 | 38038 | 0.003492460         | 500 kH/s            |
 | 38048 | 0.010477380         | 1.5 MH/s            |
-| 38058 | 0.020954760         | 3 MH/s or greater   |
+| 38058 | 0.020954760         | 3 MH/s              |
+| 38068 | 0.034924600         | 5 MH/s or greater (fixed difficulty) |
 
-All ports use variable difficulty; the port only sets the starting point.
+Ports 38008 to 38058 use variable difficulty; the port only sets the starting point.
+Port 38068 keeps a fixed difficulty.
 
 With `:auto` the miner:
 1. connects on port 38008,
 2. measures its real hashrate for about one minute,
-3. moves to the highest port whose hashrate is not above yours,
-4. re-checks every 5 minutes (a change must be confirmed twice, at most one switch per 10 minutes, and it only moves down when the hashrate drops below 80% of the current tier).
+3. moves to the port that matches it: a port is entered when your hashrate reaches 95% of the port's hashrate,
+4. re-checks every 5 minutes and leaves a port downward only when the hashrate falls below 85% of it
+   (a change must be confirmed by two checks in a row, at most one switch per 10 minutes).
+
+| Port  | Entered from | Left below |
+|-------|-------------:|-----------:|
+| 38008 | 0            | -          |
+| 38018 | 47.5 kH/s    | 42.5 kH/s  |
+| 38028 | 190 kH/s     | 170 kH/s   |
+| 38038 | 475 kH/s     | 425 kH/s   |
+| 38048 | 1.425 MH/s   | 1.275 MH/s |
+| 38058 | 2.85 MH/s    | 2.55 MH/s  |
+| 38068 | 4.75 MH/s    | 4.25 MH/s  |
 
 The active port is written in the log, e.g. `Auto port: active port is 38018 - Variable difficulty (50 kH/s)` and at the end of every speed line (`Port 38018 (auto)`).
 `auto` is also accepted for the failover pool (`-fo`). It is not available for solo mining.

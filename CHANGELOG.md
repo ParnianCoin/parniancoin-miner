@@ -1,5 +1,12 @@
 # parnianminer update and bugfix history
 
+Version 2.4.1 - Auto port improvements
+*Auto port: a port is now entered at 95% of its hashrate and left only below 85% of it.
+ A miner running close to a tier (ex: 1.5 MH/s) now reaches that port instead of staying one port below.
+*Auto port: new port 38068 (fixed difficulty, 5 MH/s or greater)
+*Auto port: a switch is confirmed when two checks in a row point in the same direction,
+ so small hashrate fluctuations no longer cancel a pending switch
+
 Version 2.4 - ParnianCoin release (out of beta)
 *New: automatic pool port selection. Use "auto" instead of the port: -s stratum.parniancoin.com:auto
  The miner measures its hashrate and moves to the matching pool port. The active port is shown in the log.

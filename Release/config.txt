@@ -36,7 +36,9 @@
 // Pool or node address.
 // Pool, automatic port (recommended): "stratum.parniancoin.com:auto"
 //   The miner measures its hashrate and moves to the matching pool port:
-//   38008=10 kH/s, 38018=50 kH/s, 38028=200 kH/s, 38038=500 kH/s, 38048=1.5 MH/s, 38058=3 MH/s+
+//   38008=10 kH/s, 38018=50 kH/s, 38028=200 kH/s, 38038=500 kH/s, 38048=1.5 MH/s,
+//   38058=3 MH/s, 38068=5 MH/s+ (fixed difficulty)
+//   A port is entered at 95% of its hashrate and left below 85% of it.
 // Pool, fixed port: "stratum.parniancoin.com:38008" (the miner stays on this port)
 // Solo mining on a node: "http://node.parniancoin.com:38009"
 "s":"stratum.parniancoin.com:auto",

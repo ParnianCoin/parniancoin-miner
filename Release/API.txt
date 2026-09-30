@@ -1,5 +1,5 @@
 
-SECURITY NOTES (parnianminer 2.4)
+SECURITY NOTES (parnianminer 2.4.1)
     - The api is disabled by default. Enable it with -apiport 7111.
     - It listens on 127.0.0.1 only. Add -apiremote to open it to the network (trusted network only).
     - Without -apipw the api is read-only (miner_getstat1 only).
