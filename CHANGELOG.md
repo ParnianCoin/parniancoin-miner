@@ -14,6 +14,8 @@ Version 2.4.1 - Auto port improvements
  (Linux: the miner used to exit on work timeout)
 *Fixed crash when the connection was lost or the login refused before the first job was received
 *Auto port state, pending port switch and stratum session are now kept per pool
+*New: HiveOS and mmpOS packages, with hashrate and shares shown in the dashboard
+*Linux: console output is line-buffered, so the log is complete when the output goes to a pipe or a file
 
 Version 2.4 - ParnianCoin release (out of beta)
 *New: automatic pool port selection. Use "auto" instead of the port: -s stratum.parniancoin.com:auto
