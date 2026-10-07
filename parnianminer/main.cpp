@@ -92,6 +92,11 @@ int main_init(int argc, char** argv)
 int main(int argc, char** argv)
 #endif
 {
+	#ifndef _WIN32
+       // Line-buffered console output: when stdout is a pipe or a file (HiveOS, mmpOS,
+       // systemd, nohup) every line reaches the log at once instead of in 4 KB blocks.
+       setvbuf(stdout, NULL, _IOLBF, 0);
+    #endif
     ////////////////////////////////////////////////////////////////////
     //
     //      App header
