@@ -216,8 +216,12 @@ void RandomHash_blake2s(RH_StridePtr roundInput, RH_StridePtr output, U32 bitSiz
 	P->node_depth    = 0;
 	P->inner_length  = 0;
 
-#if defined(_WIN32_WINNT) || defined(__CUDA_ARCH__)
-    RH_memzero_8(P->salt, sizeof( P->salt ))
+    // NOTE: always use memset here. The previous Windows-only RH_memzero_8 path wrote the
+    // salt/personal fields through a U64* while P is later read through a uint32_t*;
+    // with -Ofast (strict aliasing) mingw-w64 dropped/reordered those stores, so BLAKE2s
+    // produced wrong digests on Windows -> wrong RandomHash2 -> "low difficulty" rejects.
+#if defined(__CUDA_ARCH__)
+    RH_memzero_8(P->salt, sizeof( P->salt ));
     RH_memzero_8(P->personal, sizeof( P->personal ) );
 #else
     memset(P->salt, 0, sizeof( P->salt ));
