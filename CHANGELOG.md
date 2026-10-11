@@ -1,5 +1,10 @@
 # parnianminer update and bugfix history
 
+Version 2.4.2 - Windows rejected shares fix
+*Fixed: on Windows builds BLAKE2s produced wrong digests (salt/personal parameters were not
+ cleared reliably under -Ofast). Every RandomHash2 round that used Blake2s gave a wrong hash,
+ which the pool rejected as "low difficulty share". Linux builds were not affected.
+
 Version 2.4.1 - Auto port improvements
 *Auto port: a port is now entered at 95% of its hashrate and left only below 85% of it.
  A miner running close to a tier (ex: 1.5 MH/s) now reaches that port instead of staying one port below.
