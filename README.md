@@ -6,7 +6,7 @@ Runs on Windows (64/32 bit) and Linux x64.
 
 Website: https://parniancoin.com
 
-**Current version is 2.4.1**
+**Current version is 2.4.2** (Windows users on 2.4.1 or older: please update, it fixes rejected "low difficulty" shares)
 
 ## Quick start
 
@@ -25,7 +25,7 @@ Solo mining on a ParnianCoin node:
 parnianminer -cpu -cputhreads 4 -s http://node.parniancoin.com:38009
 ```
 
-* `-su` is your ParnianCoin account followed by a worker name of your choice (`rig1`, `rig2`, ...), so each computer shows separately on the pool.
+* `-su` is your ParnianCoin **account number** (like `1234-56`, replace it with your own) followed by a worker name of your choice (`rig1`, `rig2`, ...). Get your account number in the web wallet at https://wallet.parniancoin.com (free starter account available). Public keys and other address formats are not accepted.
 * `-pw` is not checked by the pool; `x` is fine.
 * Run `parnianminer -completelist` to see how many logical cores you have (good maximum for `-cputhreads`).
 
