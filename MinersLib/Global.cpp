@@ -31,6 +31,9 @@
 #ifndef RH_COMPILE_CPU_ONLY
 #include "MinersLib/Parnian/RandomHashHostCudaMiner.h"
 #endif
+#ifdef PARNIANMINER_CUDA
+#include "MinersLib/Parnian/RandomHashCudaMiner.h"
+#endif
 
 PARNIANMINER_COMMAND_LINE_DEFINE_GLOBAL_STRING(g_logFileNameDummy, "");
 PARNIANMINER_COMMAND_LINE_DEFINE_GLOBAL_STRING(g_configFileNameDummy, "");
@@ -66,7 +69,7 @@ GlobalMiningPreset::GlobalMiningPreset()
     devFeeMutex = new std::mutex;
     m_startTimeMS = TimeGetMilliSec();
 
-#ifndef RH_COMPILE_CPU_ONLY
+#if !defined(RH_COMPILE_CPU_ONLY) || defined(PARNIANMINER_CUDA)
     CmdLineManager::GlobalOptions().RegisterValue("gputhreads", "Gpu", "Cuda thread count. ex: -gputhreads 100 launches 100 threads on selected gpu", [&](const string& val) 
     { 
         std::vector<string> istr = GetTokens(val, ",");
@@ -427,6 +430,10 @@ Miner* GlobalMiningPreset::CreateMiner(CreatorClasType type, FarmFace& _farm, U3
     // parnianminer: dev fee removed - dev-mode timer is disabled permanently
     m_devFeeTimer24hMS = U64_Max;
 
+#ifdef PARNIANMINER_CUDA
+    if (type == ClassNvidia)
+        return new RandomHashCudaMiner(_farm, 0, 0, gpuIndex);
+#endif
 
 #ifndef RH_COMPILE_CPU_ONLY
     if (type == ClassOpenCL)

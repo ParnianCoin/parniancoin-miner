@@ -19,6 +19,9 @@
 
 #include "precomp.h"
 #include "MinersLib/GpuManager.h"
+#ifdef PARNIANMINER_CUDA
+#include "MinersLib/Cuda/CudaDriver.h"
+#endif
 #include "MinersLib/Global.h"
 #include "BuildInfo.h"
 
@@ -517,6 +520,28 @@ void GpuManager::LoadGPUMap()
         }    
     }
 #endif //RH_COMPILE_CPU_ONLY
+
+#if defined(RH_COMPILE_CPU_ONLY) && defined(PARNIANMINER_CUDA)
+    // NVIDIA GPUs through the CUDA driver API (no CUDA SDK / OpenCL needed)
+    for (const cudrv::DeviceInfo& d : cudrv::EnumerateDevices())
+    {
+        GPUInfos inf;
+        inf.platformID = 0;
+        inf.deviceID = (U32)d.ordinal;
+        inf.deviceName = d.name;
+        inf.platformName = "NVIDIA CUDA";
+        inf.archName = FormatString("sm_%d%d", d.ccMajor, d.ccMinor);
+        inf.description = FormatString("%s %u MB (sm_%d%d)", d.name.c_str(), (U32)(d.totalMem / (1024 * 1024)), d.ccMajor, d.ccMinor);
+        inf.deviceVersion = FormatString("%d:%d", d.ccMajor, d.ccMinor);
+        inf.memorySize = d.totalMem;
+        inf.maxAllocSize = d.totalMem;
+        inf.maxCU = (U32)d.smCount;
+        inf.maxWorkSize = 1024;
+        inf.maxGroupSize = 0x7FFFFFFF;
+        inf.isOpenCL = false;
+        gpuIndent[FormatString("CUDA%03d", d.ordinal)] = inf;
+    }
+#endif
 
     //Add the cpu last
     GPUInfos CPUinf;

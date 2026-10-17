@@ -114,6 +114,22 @@ void ClientManager::Initialize()
         }
     }
 
+#ifdef PARNIANMINER_CUDA
+    extern bool g_useGPU;
+    // '-gpu' without '-cpu' / '-cputhreads': mine on the selected GPUs only
+    if (CmdLineManager::GlobalOptions().FindSwitch("-gpu") &&
+        !CmdLineManager::GlobalOptions().FindSwitch("-cpu") &&
+        !CmdLineManager::GlobalOptions().FindSwitch("-cputhreads"))
+    {
+        g_useCPU = false;
+    }
+    for (auto& g : GpuManager::Gpus)
+    {
+        if (g.enabled && !PARNIANMINER_TEST_BIT(g.gpuType, GpuType_CPU))
+            g_useGPU = true;
+    }
+#endif
+
     /////////////////////////////////////////////////
     //mining for CPU
     if (g_useCPU)

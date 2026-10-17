@@ -1,5 +1,16 @@
 # parnianminer update and bugfix history
 
+Version 2.5 - NVIDIA GPU mining
+*New: mining on NVIDIA GPUs (-gpu 0, or -gpu 0,1 -cpu -cputhreads N for GPUs and CPU together).
+ Only the NVIDIA display driver is needed (no CUDA toolkit or DLLs). Maxwell (GTX 750/900, 800M/900M)
+ and newer, up to Blackwell; works with old drivers (CUDA 8) as well as CUDA 12 and 13 drivers.
+*Every GPU share is verified on the CPU before it is submitted.
+*New: nonce scanning on the GPU (-gpuscan 2, default): only nonces that finish within 2 rounds are
+ completed. Same hashes, much less GPU memory per thread. RTX 4090: ~640 kH/s.
+*New: -gputest N (check + benchmark), -gpubench N (finds the fastest -gpuregs/-gpuscan/-gpublock),
+ -gpudiag (step by step check that shows where a GPU fails)
+*Windows: the launch size adapts so a kernel stays below the 2 s display driver timeout (TDR)
+
 Version 2.4.2 - Windows rejected shares fix
 *Fixed: on Windows builds BLAKE2s produced wrong digests (salt/personal parameters were not
  cleared reliably under -Ofast). Every RandomHash2 round that used Blake2s gave a wrong hash,

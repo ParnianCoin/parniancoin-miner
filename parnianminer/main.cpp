@@ -19,6 +19,7 @@
 #include "BuildInfo.h"
 #include "ClientManager.h"
 #include "MinersLib/Global.h"
+#include "MinersLib/Parnian/RandomHashCudaMiner.h"
 #include "MinersLib/GenericMinerClient.h"
 #include "MinersLib/AutoPort.h"
 #include <atomic>
@@ -104,6 +105,9 @@ int main(int argc, char** argv)
 #ifndef RH_COMPILE_CPU_ONLY 
     printf("\n  parnianminer v%s for CPU and NVIDIA GPUs\n", RH_PROJECT_VERSION);
     printf("  Build %s (CUDA SDK %d.%d) %s %s\n\n", RH_BUILD_TYPE, CUDART_VERSION/1000, (CUDART_VERSION % 1000)/10, __DATE__, __TIME__);
+#elif defined(PARNIANMINER_CUDA)
+    printf("\n  parnianminer v%s for CPU and NVIDIA GPUs\n", RH_PROJECT_VERSION);
+    printf("  Build %s %s %s %s \n\n", RH_OS_NAME, RH_BUILD_TYPE, __DATE__, __TIME__);
 #else
     printf("\n  parnianminer v%s for CPU\n", RH_PROJECT_VERSION);
     printf("  Build %s %s %s %s \n\n", RH_OS_NAME, RH_BUILD_TYPE, __DATE__, __TIME__);
@@ -185,6 +189,24 @@ int main(int argc, char** argv)
     PrintOutSilent("Build %s %s %s %s \n", RH_OS_NAME, RH_BUILD_TYPE, __DATE__, __TIME__);
 
     GpuManager::SetPostCommandLineOptions();
+
+#ifdef PARNIANMINER_CUDA
+    if (g_gpuBenchSeconds)
+    {
+        RandomHashCudaMiner::RunBench((U32)g_gpuBenchSeconds);
+        exit(0);
+    }
+    if (g_gpuDiag || g_gpuDiagFrom)
+    {
+        RandomHashCudaMiner::RunDiagnostics();
+        exit(0);
+    }
+    if (g_gpuTestSeconds)
+    {
+        RandomHashCudaMiner::RunSelfTests((U32)g_gpuTestSeconds);
+        exit(0);
+    }
+#endif
 
     //warning
     if (g_apiPort && g_apiPW.length())

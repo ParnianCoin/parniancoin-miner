@@ -1,12 +1,12 @@
 # parnianminer
 
-CPU miner for the **ParnianCoin** RandomHash2 proof-of-work.
+CPU and NVIDIA GPU miner for the **ParnianCoin** RandomHash2 proof-of-work.
 Supports pool (stratum) mining with **automatic port selection** and solo mining on a ParnianCoin node.
 Runs on Windows (64/32 bit) and Linux x64.
 
 Website: https://parniancoin.com
 
-**Current version is 2.4.2** (Windows users on 2.4.1 or older: please update, it fixes rejected "low difficulty" shares)
+**Current version is 2.5**: NVIDIA GPU mining (see [GPU mining](#gpu-mining-nvidia)). Windows users on 2.4.1 or older: please update, it fixes rejected "low difficulty" shares.
 
 ## Quick start
 
@@ -28,6 +28,19 @@ parnianminer -cpu -cputhreads 4 -s http://node.parniancoin.com:38009
 * `-su` is your ParnianCoin **account number** (like `1234-56`, replace it with your own) followed by a worker name of your choice (`rig1`, `rig2`, ...). Get your account number in the web wallet at https://wallet.parniancoin.com (free starter account available). Public keys and other address formats are not accepted.
 * `-pw` is not checked by the pool; `x` is fine.
 * Run `parnianminer -completelist` to see how many logical cores you have (good maximum for `-cputhreads`).
+
+## GPU mining (NVIDIA)
+
+Needs only the NVIDIA display driver (no CUDA toolkit). Works on Maxwell (GTX 750/900, 800M/900M) and newer, 64-bit builds.
+```
+parnianminer -gputest 60                     # check the GPU against the CPU + 60 s benchmark
+parnianminer -gpu 0 -s stratum.parniancoin.com:auto -su YOUR_PARNIAN_ACCOUNT.rig1 -pw x
+parnianminer -gpu 0 -cpu -cputhreads 6 -s stratum.parniancoin.com:auto -su YOUR_PARNIAN_ACCOUNT.rig1 -pw x
+```
+* `-gpu 0,1` selects GPUs (`parnianminer -list` shows them). Add `-cpu -cputhreads N` to mine with the CPU too; leave one or two cores free for the GPUs.
+* `-gpubench 8` tries every kernel option and prints the fastest ones for your GPU. `-gpudiag` shows where a GPU fails.
+* Measured: RTX 4090 ~640 kH/s. On laptops with small GPUs (ex: GTX 850M ~12 kH/s) the CPU is faster.
+* Details: `cudalib/README.md`.
 
 ## Pool ports and the `auto` mode
 

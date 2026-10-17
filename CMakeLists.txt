@@ -243,6 +243,42 @@ if(WIN32)
     set(SOURCES ${SOURCES} ${RH_VERSION_RES})
 endif(WIN32)
 
+# NVIDIA GPU mining through the CUDA driver API.
+# The kernel is prebuilt (cudalib/build_kernel.sh) and embedded; building the
+# miner needs no CUDA toolkit and the binary needs only the NVIDIA driver.
+# Not available for 32-bit builds (NVIDIA has no 32-bit CUDA driver anymore).
+option(RH_CUDA "NVIDIA GPU support (embedded RandomHash2 CUDA kernel)" ON)
+set(RH2_FATBIN ${CMAKE_SOURCE_DIR}/cudalib/bin/rh2_kernel.fatbin CACHE FILEPATH "Prebuilt RandomHash2 CUDA kernel")
+if(RH_CUDA AND CMAKE_SIZEOF_VOID_P EQUAL 8 AND EXISTS ${RH2_FATBIN})
+    message(STATUS "NVIDIA GPU support: ON (${RH2_FATBIN})")
+    add_definitions(-DPARNIANMINER_CUDA)
+    set(HEADERS ${HEADERS}
+        MinersLib/Cuda/CudaDriver.h
+        MinersLib/Parnian/RandomHashCudaMiner.h
+        cudalib/rh2_kernel_api.h
+        cudalib/rh2/rh2_diag.h)
+    set(SOURCES ${SOURCES}
+        MinersLib/Cuda/CudaDriver.cpp
+        MinersLib/Cuda/Rh2HostDiag.cpp
+        MinersLib/Parnian/RandomHashCudaMiner.cpp
+        cudalib/rh2_fatbin.cpp)
+    set(RH2_FATBIN_DEFS "RH2_FATBIN_PATH=${RH2_FATBIN}")
+    set(RH2_FATBIN_DEPS ${RH2_FATBIN})
+    foreach(R 128 64)
+        set(RH2_VARIANT ${CMAKE_SOURCE_DIR}/cudalib/bin/rh2_kernel_r${R}.fatbin)
+        if(EXISTS ${RH2_VARIANT})
+            list(APPEND RH2_FATBIN_DEFS "RH2_FATBIN_R${R}_PATH=${RH2_VARIANT}")
+            list(APPEND RH2_FATBIN_DEPS ${RH2_VARIANT})
+            message(STATUS "  + register variant ${R}")
+        endif()
+    endforeach()
+    set_source_files_properties(cudalib/rh2_fatbin.cpp PROPERTIES
+        COMPILE_DEFINITIONS "${RH2_FATBIN_DEFS}"
+        OBJECT_DEPENDS "${RH2_FATBIN_DEPS}")
+else()
+    message(STATUS "NVIDIA GPU support: OFF")
+endif()
+
 add_executable(${PROJECT_NAME} ${HEADERS} ${SOURCES})
 if(WIN32)
     target_link_options(${PROJECT_NAME} PRIVATE -static-libgcc -static-libstdc++ -static)
