@@ -118,7 +118,7 @@ compare the SHA-256 checksum published there.
 There is **no developer fee**. 100% of your hashrate mines to your own account.
 
 ## Copyright and licence
-Copyright (C) 2026 Amir Reza Zamani <amirrezazamani@gmail.com> - https://parniancoin.com
+Copyright (C) 2026 ParnianCoin <info@parniancoin.com> - https://parniancoin.com
 Released under the GNU General Public License v3, see LICENSE.
 
 Based on rhminer (https://github.com/polyminer1/rhminer). Third-party components
